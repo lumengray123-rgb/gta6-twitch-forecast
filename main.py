@@ -57,6 +57,15 @@ EA_WEIGHT = 0.25
 CONSOLE_UP = 3.0
 # The forecast spread never goes below this (log units).
 SD_FLOOR = 0.20
+# The fitted slope of log viewers(h) on log(hour-1 print) is clamped to
+# this range. GTA VI's hour-1 print will likely exceed every training
+# print, so the model extrapolates linearly in log space there; a
+# degenerate fit (a negative or very steep slope) would explode that
+# extrapolation. Observed slopes run 0.41..1.11 across the practice
+# cases and a final-like case, so the clamp only fires on a fit that
+# is already implausible.
+SLOPE_MIN = 0.0
+SLOPE_MAX = 1.25
 # The persistence fallback's spread growth, per square-root hour.
 PERSIST_SIGMA = 0.15
 
@@ -258,6 +267,16 @@ def model_forecast(case):
                              / sum(weights))
             spread = 0.5
         else:
+            slope = min(max(beta[1], SLOPE_MIN), SLOPE_MAX)
+            if slope != beta[1]:
+                # Clamped slope: re-center the intercept so the fit
+                # still passes through the weighted mean of the data.
+                total = sum(weights)
+                mean_x = sum(w * row[1]
+                             for row, w in zip(design, weights)) / total
+                mean_y = sum(w * y
+                             for y, w in zip(values, weights)) / total
+                beta = [mean_y - slope * mean_x, slope]
             pred = beta[0] + beta[1] * log_p1
             residuals = [y - (beta[0] + beta[1] * row[1])
                          for row, y in zip(design, values)]
